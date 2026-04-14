@@ -207,7 +207,8 @@ export async function runSetup(
 
     // Save
     await saveCredentials(creds);
-    console.log(chalk.green("  ✓ Credentials saved to ~/.sfagent/credentials.json\n"));
+    console.log(chalk.green("  ✓ Credentials saved to .sfagent/credentials.json\n"));
+    console.log(chalk.yellow("  ⚠ Add .sfagent/ to your .gitignore to avoid committing secrets.\n"));
     console.log(chalk.dim("  You're all set! Start chatting to use the Models API.\n"));
   } finally {
     // Only close if we created it

@@ -10,17 +10,18 @@
  *   - JWT-based access tokens
  *   - Scopes: api, refresh_token/offline_access, sfap_api
  *
- * Credentials (consumer key + secret) are stored in ~/.sfagent/credentials.json
- * after the user runs /setup.
+ * Credentials (consumer key + secret) are stored in .sfagent/credentials.json
+ * in the current working directory after the user runs /setup.
+ *
+ * IMPORTANT: Users should add .sfagent/ to their .gitignore.
  */
 
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import * as os from "node:os";
 import { execFileSync } from "node:child_process";
 import type { AuthToken, StoredCredentials, SfAgentConfig } from "./types.js";
 
-const CONFIG_DIR = path.join(os.homedir(), ".sfagent");
+const CONFIG_DIR = path.join(process.cwd(), ".sfagent");
 const CREDENTIALS_PATH = path.join(CONFIG_DIR, "credentials.json");
 const TOKEN_CACHE_PATH = path.join(CONFIG_DIR, "token.json");
 

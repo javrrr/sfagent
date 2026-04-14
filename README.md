@@ -47,7 +47,7 @@ This walks you through:
 3. Entering your Consumer Key and Secret
 4. Testing the connection
 
-Credentials are stored locally in `~/.sfagent/credentials.json`.
+Credentials are stored locally in `.sfagent/credentials.json` (in the current directory). Add `.sfagent/` to your `.gitignore`.
 
 ### External Client App Settings
 
