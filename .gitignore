@@ -1,5 +1,8 @@
 node_modules/
 dist/
-.sfdx/
-.sf/
+*.tsbuildinfo
+*.tgz
+.env
+.sfdx
+.sf
 .DS_Store
