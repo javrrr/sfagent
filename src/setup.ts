@@ -65,37 +65,37 @@ async function testCredentials(creds: StoredCredentials): Promise<boolean> {
 // ---------------------------------------------------------------------------
 
 export async function runSetup(
-  config: SfAgentConfig,
-  existingRl?: readline.Interface
+  config: SfAgentConfig
 ): Promise<void> {
-  const rl =
-    existingRl ??
-    readline.createInterface({ input: process.stdin, output: process.stdout });
+  // Setup manages its own readline instances since it needs to
+  // hand stdin to inquirer for the org picker.
+  let rl: readline.Interface | null = null;
 
   try {
     console.log(chalk.cyan("\n  ╔══════════════════════════════════════╗"));
     console.log(chalk.cyan("  ║    sfagent — Models API Setup        ║"));
     console.log(chalk.cyan("  ╚══════════════════════════════════════╝\n"));
 
-    // Check existing credentials
+    // Check existing credentials (use a temporary readline)
     const existing = await loadCredentials();
     if (existing) {
+      const tmpRl = readline.createInterface({ input: process.stdin, output: process.stdout });
       const overwrite = await ask(
-        rl,
+        tmpRl,
         chalk.yellow("  Credentials already exist. Overwrite? (y/N): ")
       );
+      tmpRl.close();
       if (overwrite.toLowerCase() !== "y") {
         console.log(chalk.dim("  Setup cancelled.\n"));
         return;
       }
     }
 
-    // Step 1: Choose org
+    // Step 1: Choose org (uses inquirer — needs exclusive stdin)
     console.log(chalk.white.bold("  Step 1: Select your Salesforce org\n"));
 
     let myDomain: string | null = null;
 
-    // Build org selection choices
     const orgs = listConnectedOrgs();
     const orgChoices = orgs.map((org) => {
       const label = org.alias ? `${org.alias} (${org.username})` : org.username;
@@ -112,17 +112,19 @@ export async function runSetup(
       { name: chalk.dim("Enter My Domain URL manually"), value: "__manual__" },
     ];
 
-    // Pause REPL readline so inquirer can take over stdin
-    if (existingRl) existingRl.pause();
     let selected: string;
     try {
       selected = await select({
         message: "Select your Salesforce org",
         choices,
       });
-    } finally {
-      if (existingRl) existingRl.resume();
+    } catch {
+      console.log(chalk.dim("\n  Setup cancelled.\n"));
+      return;
     }
+
+    // Create a fresh readline for the remaining prompts
+    rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
     if (selected === "__login__") {
       const alias = await ask(
@@ -248,8 +250,7 @@ export async function runSetup(
     console.log(chalk.yellow("  ⚠ Add .sfagent/ to your .gitignore to avoid committing secrets.\n"));
     console.log(chalk.dim("  You're all set! Start chatting to use the Models API.\n"));
   } finally {
-    // Only close if we created it
-    if (!existingRl) rl.close();
+    if (rl) rl.close();
   }
 }
 

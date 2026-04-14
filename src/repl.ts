@@ -22,7 +22,7 @@ async function handleSlashCommand(
   history: Message[],
   config: SfAgentConfig,
   rl: readline.Interface
-): Promise<boolean> {
+): Promise<"handled" | "setup" | "not_handled"> {
   const [cmd, ...rest] = input.trim().split(/\s+/);
 
   switch (cmd) {
@@ -34,7 +34,7 @@ async function handleSlashCommand(
     case "/clear":
       history.length = 0;
       console.log(chalk.dim("Conversation cleared."));
-      return true;
+      return "handled";
 
     case "/model": {
       const modelName = rest.join(" ");
@@ -46,7 +46,7 @@ async function handleSlashCommand(
         provider.setModel(modelName);
         console.log(chalk.dim(`Model set to: ${modelName}`));
       }
-      return true;
+      return "handled";
     }
 
     case "/login": {
@@ -61,20 +61,11 @@ async function handleSlashCommand(
       } catch (err) {
         console.log(chalk.red((err as Error).message));
       }
-      return true;
+      return "handled";
     }
 
-    case "/setup": {
-      try {
-        await runSetup(config, rl);
-        // Reload credentials into config
-        const { loadCredentials } = await import("./api/auth.js");
-        config.credentials = await loadCredentials();
-      } catch (err) {
-        console.log(chalk.red((err as Error).message));
-      }
-      return true;
-    }
+    case "/setup":
+      return "setup";
 
     case "/org": {
       const orgInfo = getOrgInfo(config.targetOrg || undefined);
@@ -85,20 +76,20 @@ async function handleSlashCommand(
           if (value) console.log(chalk.dim(`  ${key}: ${value}`));
         }
       }
-      return true;
+      return "handled";
     }
 
     case "/history":
       console.log(
         chalk.dim(`${history.length} messages in conversation history.`)
       );
-      return true;
+      return "handled";
 
     case "/help":
       console.log(
         chalk.dim(`
 Available commands:
-  /setup           Configure Models API credentials (first-time setup)
+  /setup           Configure Models API credentials
   /login [alias]   Log in to a Salesforce org via sf CLI
   /org             Show current org details
   /model [name]    Show or set the current model
@@ -108,10 +99,10 @@ Available commands:
   /exit            Exit sfagent
 `)
       );
-      return true;
+      return "handled";
 
     default:
-      return false;
+      return "not_handled";
   }
 }
 
@@ -133,45 +124,86 @@ export async function startRepl(
     chalk.dim("  Type a message to get started. /help for commands.\n")
   );
 
-  const rl = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-    prompt: chalk.cyan("sfagent> "),
-  });
+  function createRl(): readline.Interface {
+    return readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+      prompt: chalk.cyan("sfagent> "),
+    });
+  }
 
-  const display = createDisplay(rl);
+  let rl = createRl();
+  let display = createDisplay(rl);
 
-  rl.prompt();
+  function startListening(): void {
+    rl.prompt();
 
-  rl.on("line", async (line: string) => {
-    const input = line.trim();
+    rl.on("line", async (line: string) => {
+      const input = line.trim();
 
-    if (!input) {
-      rl.prompt();
-      return;
-    }
-
-    // Handle slash commands
-    if (input.startsWith("/")) {
-      if (await handleSlashCommand(input, provider, history, config, rl)) {
+      if (!input) {
         rl.prompt();
         return;
       }
-    }
 
-    // Run agent loop
-    try {
-      await runAgentLoop(provider, input, history, display, config);
-    } catch (err) {
-      display.onError((err as Error).message);
-    }
+      // Handle slash commands
+      if (input.startsWith("/")) {
+        const result = await handleSlashCommand(
+          input,
+          provider,
+          history,
+          config,
+          rl
+        );
 
-    console.log();
-    rl.prompt();
-  });
+        if (result === "setup") {
+          // Setup needs exclusive stdin control (inquirer).
+          // Close this readline — setup will close it again (harmless).
+          rl.close();
+          process.stdin.removeAllListeners("keypress");
 
-  rl.on("close", () => {
+          try {
+            await runSetup(config);
+            const { loadCredentials } = await import("./api/auth.js");
+            config.credentials = await loadCredentials();
+          } catch (err) {
+            console.log(chalk.red((err as Error).message));
+          }
+
+          // Recreate readline after setup completes
+          rl = createRl();
+          display = createDisplay(rl);
+          startListening();
+          return;
+        }
+
+        if (result === "handled") {
+          rl.prompt();
+          return;
+        }
+      }
+
+      // Run agent loop
+      try {
+        await runAgentLoop(provider, input, history, display, config);
+      } catch (err) {
+        display.onError((err as Error).message);
+      }
+
+      console.log();
+      rl.prompt();
+    });
+
+    rl.on("close", () => {
+      // Only exit if this is the active readline (not being replaced by setup)
+    });
+  }
+
+  // Handle Ctrl+C gracefully
+  process.on("SIGINT", () => {
     console.log(chalk.dim("\nGoodbye."));
     process.exit(0);
   });
+
+  startListening();
 }
