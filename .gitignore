@@ -1,0 +1,5 @@
+node_modules/
+dist/
+.sfdx/
+.sf/
+.DS_Store

@@ -1,0 +1,50 @@
+{
+  "name": "sfagent",
+  "version": "0.1.0",
+  "description": "Salesforce terminal agent powered by the Models API — a Claude Code-like experience for Salesforce developers",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "sfagent": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "salesforce",
+    "agentforce",
+    "cli",
+    "agent",
+    "models-api",
+    "sf",
+    "sfdx",
+    "soql",
+    "apex",
+    "terminal"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/sfagent.git"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "chalk": "^5.4.0",
+    "execa": "^9.5.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
