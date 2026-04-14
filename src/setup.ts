@@ -91,52 +91,79 @@ export async function runSetup(
       }
     }
 
-    // Step 1: Choose org (uses inquirer — needs exclusive stdin)
-    console.log(chalk.white.bold("  Step 1: Select your Salesforce org\n"));
+    // Step 1: Choose how to connect
+    console.log(chalk.white.bold("  Step 1: Connect to a Salesforce org\n"));
 
     let myDomain: string | null = null;
 
-    const orgs = listConnectedOrgs();
-    const orgChoices = orgs.map((org) => {
-      const label = org.alias ? `${org.alias} (${org.username})` : org.username;
-      const def = org.isDefault ? chalk.green(" ← default") : "";
-      return {
-        name: `${label}${def}  ${chalk.dim(org.instanceUrl)}`,
-        value: org.instanceUrl,
-      };
-    });
-
-    const choices = [
-      ...orgChoices,
-      { name: chalk.cyan("Log in to a new org (opens browser)"), value: "__login__" },
-      { name: chalk.dim("Enter My Domain URL manually"), value: "__manual__" },
-    ];
-
-    let selected: string;
+    // Screen 1: Pick connection method
+    let method: string;
     try {
-      selected = await select({
-        message: "Select your Salesforce org",
-        choices,
+      method = await select({
+        message: "How would you like to connect?",
+        choices: [
+          { name: "Use an existing SF CLI org", value: "existing" },
+          { name: "Log in to a new org (opens browser)", value: "login" },
+          { name: "Enter My Domain URL manually", value: "manual" },
+        ],
       });
     } catch {
       console.log(chalk.dim("\n  Setup cancelled.\n"));
       return;
     }
 
-    // Create a fresh readline for the remaining prompts
-    rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    if (method === "existing") {
+      // Screen 2: Pick from connected orgs
+      const orgs = listConnectedOrgs();
 
-    if (selected === "__login__") {
+      if (orgs.length === 0) {
+        console.log(chalk.yellow("\n  No connected orgs found."));
+        console.log(chalk.dim("  Run: sf org login web --set-default\n"));
+      } else {
+        const orgChoices = orgs.map((org) => {
+          const label = org.alias
+            ? `${org.alias} (${org.username})`
+            : org.username;
+          const def = org.isDefault ? chalk.green(" ← default") : "";
+          return {
+            name: `${label}${def}  ${chalk.dim(org.instanceUrl)}`,
+            value: org.instanceUrl,
+          };
+        });
+
+        try {
+          myDomain = await select({
+            message: "Select org",
+            choices: orgChoices,
+          });
+          const matchedOrg = orgs.find((o) => o.instanceUrl === myDomain);
+          if (matchedOrg) {
+            const label = matchedOrg.alias
+              ? `${matchedOrg.alias} (${matchedOrg.username})`
+              : matchedOrg.username;
+            console.log(chalk.green(`  ✓ ${label}`));
+          }
+        } catch {
+          console.log(chalk.dim("\n  Setup cancelled.\n"));
+          return;
+        }
+      }
+    } else if (method === "login") {
+      // Create readline for the alias prompt
+      rl = readline.createInterface({ input: process.stdin, output: process.stdout });
       const alias = await ask(
         rl,
         chalk.cyan("\n  Org alias (optional, press Enter to skip): ")
       );
+      rl.close();
+      rl = null;
+
       try {
         loginWithSfCli(alias || undefined);
-        const updatedOrgs = listConnectedOrgs();
+        const orgs = listConnectedOrgs();
         const newOrg = alias
-          ? updatedOrgs.find((o) => o.alias === alias)
-          : updatedOrgs[updatedOrgs.length - 1];
+          ? orgs.find((o) => o.alias === alias)
+          : orgs[orgs.length - 1];
         if (newOrg) {
           myDomain = newOrg.instanceUrl;
           const label = newOrg.alias
@@ -147,17 +174,12 @@ export async function runSetup(
       } catch (err) {
         console.log(chalk.red(`  Login failed: ${(err as Error).message}`));
       }
-    } else if (selected === "__manual__") {
-      // falls through to manual entry below
-    } else {
-      myDomain = selected;
-      const matchedOrg = orgs.find((o) => o.instanceUrl === selected);
-      if (matchedOrg) {
-        const label = matchedOrg.alias
-          ? `${matchedOrg.alias} (${matchedOrg.username})`
-          : matchedOrg.username;
-        console.log(chalk.green(`  ✓ ${label}`));
-      }
+    }
+    // method === "manual" falls through
+
+    // Create readline for remaining prompts (if not already open)
+    if (!rl) {
+      rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     }
 
     if (!myDomain) {
