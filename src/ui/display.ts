@@ -60,27 +60,18 @@ function stopSpinner(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Confirmation prompt
-// ---------------------------------------------------------------------------
-
-function askConfirmation(question: string): Promise<string> {
-  return new Promise((resolve) => {
-    const rl = readline.createInterface({
-      input: process.stdin,
-      output: process.stdout,
-    });
-    rl.question(question, (answer) => {
-      rl.close();
-      resolve(answer.trim().toLowerCase());
-    });
-  });
-}
-
-// ---------------------------------------------------------------------------
 // Display implementation
 // ---------------------------------------------------------------------------
 
-export function createDisplay(): DisplayCallbacks {
+export function createDisplay(rl: readline.Interface): DisplayCallbacks {
+  function ask(question: string): Promise<string> {
+    return new Promise((resolve) => {
+      rl.question(question, (answer) => {
+        resolve(answer.trim().toLowerCase());
+      });
+    });
+  }
+
   return {
     onThinking() {
       startSpinner("Thinking...");
@@ -118,7 +109,6 @@ export function createDisplay(): DisplayCallbacks {
       const header = `${icon} ${chalk.bold(name)}`;
       console.log(header);
 
-      // Truncate very long output for display
       const output = result.output;
       const MAX_DISPLAY_LINES = 30;
       const lines = output.split("\n");
@@ -156,25 +146,20 @@ export function createDisplay(): DisplayCallbacks {
       );
       console.log(chalk.dim(`  ${description}`));
 
-      // Show args
       for (const [key, value] of Object.entries(args)) {
         const val = typeof value === "string" ? value : JSON.stringify(value);
         const display = val.length > 100 ? val.slice(0, 97) + "..." : val;
         console.log(chalk.dim(`  ${key}: ${display}`));
       }
 
-      const answer = await askConfirmation(
+      const answer = await ask(
         chalk.cyan("\n  Allow? (y)es / (n)o / (a)llow all for session: ")
       );
 
       if (answer === "a" || answer === "allow" || answer === "allow all") {
         return "allow-all";
       }
-      if (
-        answer === "y" ||
-        answer === "yes" ||
-        answer === ""  // Enter = allow
-      ) {
+      if (answer === "y" || answer === "yes" || answer === "") {
         return "allow";
       }
       return "deny";

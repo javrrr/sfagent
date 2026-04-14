@@ -124,7 +124,6 @@ export async function startRepl(
   config: SfAgentConfig
 ): Promise<void> {
   const history: Message[] = [];
-  const display = createDisplay();
 
   console.log(
     chalk.bold.cyan("\n  sfagent") +
@@ -139,6 +138,8 @@ export async function startRepl(
     output: process.stdout,
     prompt: chalk.cyan("sfagent> "),
   });
+
+  const display = createDisplay(rl);
 
   rl.prompt();
 
