@@ -20,7 +20,7 @@
     "release:version:minor": "npm version minor -m 'Bump package.json version to %s'",
     "release:version:major": "npm version major -m 'Bump package.json version to %s'",
     "release:push": "git push origin main --follow-tags",
-    "release:create": "gh release create 'v$npm_package_version' --title 'v$npm_package_version' --generate-notes",
+    "release:create": "gh release create \"v$(node -p \"require('./package.json').version\")\" --title \"v$(node -p \"require('./package.json').version\")\" --generate-notes",
     "release:run": "npm run release:check && npm run release:push && npm run release:create"
   },
   "keywords": [
