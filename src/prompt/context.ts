@@ -5,15 +5,19 @@
  * collection run once per session.
  */
 
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
 let _cachedContext: Record<string, string> | null = null;
 
-function tryExec(cmd: string): string {
+function tryExec(cmd: string, args: string[]): string {
   try {
-    return execSync(cmd, { encoding: "utf-8", timeout: 5000 }).trim();
+    return execFileSync(cmd, args, {
+      encoding: "utf-8",
+      timeout: 5000,
+      stdio: ["pipe", "pipe", "pipe"],
+    }).trim();
   } catch {
     return "";
   }
@@ -31,10 +35,10 @@ export function getProjectContext(): Record<string, string> {
   ctx.date = new Date().toISOString().split("T")[0]!;
 
   // Git context
-  const branch = tryExec("git rev-parse --abbrev-ref HEAD");
+  const branch = tryExec("git", ["rev-parse", "--abbrev-ref", "HEAD"]);
   if (branch) {
     ctx.gitBranch = branch;
-    const status = tryExec("git status --short");
+    const status = tryExec("git", ["status", "--short"]);
     ctx.gitStatus = status || "(clean)";
   }
 
@@ -52,9 +56,7 @@ export function getProjectContext(): Record<string, string> {
   }
 
   // Default org (from sf CLI)
-  const defaultOrg = tryExec(
-    "sf config get target-org --json 2>/dev/null"
-  );
+  const defaultOrg = tryExec("sf", ["config", "get", "target-org", "--json"]);
   if (defaultOrg) {
     try {
       const parsed = JSON.parse(defaultOrg);
@@ -66,7 +68,7 @@ export function getProjectContext(): Record<string, string> {
   }
 
   // SF CLI version
-  const sfVersion = tryExec("sf --version 2>/dev/null");
+  const sfVersion = tryExec("sf", ["--version"]);
   if (sfVersion) {
     ctx.sfCliVersion = sfVersion.split("\n")[0]!;
   }

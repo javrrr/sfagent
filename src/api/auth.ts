@@ -17,7 +17,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as os from "node:os";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import type { AuthToken, StoredCredentials, SfAgentConfig } from "./types.js";
 
 const CONFIG_DIR = path.join(os.homedir(), ".sfagent");
@@ -30,8 +30,9 @@ let cachedToken: AuthToken | null = null;
 // sf CLI helpers
 // ---------------------------------------------------------------------------
 
-function exec(cmd: string): string {
-  return execSync(cmd, {
+/** Run sf CLI with args as an array (no shell). */
+function sfExec(...args: string[]): string {
+  return execFileSync("sf", args, {
     encoding: "utf-8",
     timeout: 30_000,
     stdio: ["pipe", "pipe", "pipe"],
@@ -40,7 +41,7 @@ function exec(cmd: string): string {
 
 function sfCliAvailable(): boolean {
   try {
-    exec("sf --version");
+    sfExec("--version");
     return true;
   } catch {
     return false;
@@ -79,7 +80,7 @@ export interface OrgEntry {
 
 export function listConnectedOrgs(): OrgEntry[] {
   try {
-    const stdout = exec("sf org list --json");
+    const stdout = sfExec("org", "list", "--json");
     const data = JSON.parse(stdout) as SfOrgListResult;
     const allOrgs = [
       ...(data.result.nonScratchOrgs ?? []),
@@ -123,7 +124,7 @@ export async function loadCredentials(): Promise<StoredCredentials | null> {
 }
 
 export async function saveCredentials(creds: StoredCredentials): Promise<void> {
-  await fs.mkdir(CONFIG_DIR, { recursive: true });
+  await fs.mkdir(CONFIG_DIR, { recursive: true, mode: 0o700 });
   await fs.writeFile(CREDENTIALS_PATH, JSON.stringify(creds, null, 2), {
     mode: 0o600,
   });
@@ -174,7 +175,7 @@ async function fetchJwtToken(creds: StoredCredentials): Promise<AuthToken> {
   }
 
   // Cache to disk
-  await fs.mkdir(CONFIG_DIR, { recursive: true });
+  await fs.mkdir(CONFIG_DIR, { recursive: true, mode: 0o700 });
   await fs.writeFile(TOKEN_CACHE_PATH, JSON.stringify(token, null, 2), {
     mode: 0o600,
   });
@@ -220,14 +221,14 @@ export async function loadConfig(): Promise<SfAgentConfig> {
 // ---------------------------------------------------------------------------
 
 export function loginWithSfCli(alias?: string): void {
-  const parts = ["sf", "org", "login", "web"];
-  if (alias) parts.push("--alias", alias);
-  parts.push("--set-default");
+  const sfArgs = ["org", "login", "web"];
+  if (alias) sfArgs.push("--alias", alias);
+  sfArgs.push("--set-default");
 
   console.log("\nOpening browser for Salesforce login...\n");
 
   try {
-    execSync(parts.join(" "), {
+    execFileSync("sf", sfArgs, {
       stdio: "inherit",
       timeout: 120_000,
     });
@@ -288,11 +289,11 @@ interface SfOrgDisplayResult {
 }
 
 export function getOrgInfo(targetOrg?: string): Record<string, string> {
-  const parts = ["sf", "org", "display", "--json"];
-  if (targetOrg) parts.push("--target-org", targetOrg);
+  const sfArgs = ["org", "display", "--json"];
+  if (targetOrg) sfArgs.push("--target-org", targetOrg);
 
   try {
-    const stdout = exec(parts.join(" "));
+    const stdout = sfExec(...sfArgs);
     const data = JSON.parse(stdout) as SfOrgDisplayResult;
     const org = data.result;
     return {
@@ -312,11 +313,11 @@ export function getOrgInfo(targetOrg?: string): Record<string, string> {
  * Get the My Domain URL for an org via sf CLI.
  */
 export function getMyDomain(targetOrg?: string): string | null {
-  const parts = ["sf", "org", "display", "--json"];
-  if (targetOrg) parts.push("--target-org", targetOrg);
+  const sfArgs = ["org", "display", "--json"];
+  if (targetOrg) sfArgs.push("--target-org", targetOrg);
 
   try {
-    const stdout = exec(parts.join(" "));
+    const stdout = sfExec(...sfArgs);
     const data = JSON.parse(stdout) as SfOrgDisplayResult;
     return data.result.instanceUrl ?? null;
   } catch {

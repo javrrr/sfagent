@@ -3,10 +3,11 @@
  */
 
 import { z } from "zod";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
+import * as crypto from "node:crypto";
 import { buildTool } from "./Tool.js";
 
 export const ApexRunTool = buildTool({
@@ -28,18 +29,19 @@ export const ApexRunTool = buildTool({
     const code = args.code as string;
     const targetOrg = (args.target_org as string | undefined) || ctx.targetOrg;
 
-    // Write to temp file
-    const tmpDir = os.tmpdir();
-    const tmpFile = path.join(tmpDir, `sfagent-apex-${Date.now()}.apex`);
-    fs.writeFileSync(tmpFile, code);
+    // Write to temp file with unpredictable name and restricted perms
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "sfagent-apex-"));
+    const tmpFile = path.join(tmpDir, `${crypto.randomUUID()}.apex`);
+    fs.writeFileSync(tmpFile, code, { mode: 0o600 });
 
-    const parts = ["sf", "apex", "run", "--file", tmpFile, "--json"];
-    if (targetOrg) parts.push("--target-org", targetOrg);
+    const sfArgs = ["apex", "run", "--file", tmpFile, "--json"];
+    if (targetOrg) sfArgs.push("--target-org", targetOrg);
 
     try {
-      const stdout = execSync(parts.join(" "), {
+      const stdout = execFileSync("sf", sfArgs, {
         encoding: "utf-8",
         timeout: 120_000,
+        stdio: ["pipe", "pipe", "pipe"],
       });
 
       const result = JSON.parse(stdout);
@@ -59,10 +61,9 @@ export const ApexRunTool = buildTool({
       }
 
       if (r.logs) {
-        // Show debug logs (truncated)
         const logLines = r.logs.split("\n");
-        const userDebug = logLines.filter((l: string) =>
-          l.includes("USER_DEBUG") || l.includes("EXCEPTION")
+        const userDebug = logLines.filter(
+          (l: string) => l.includes("USER_DEBUG") || l.includes("EXCEPTION")
         );
         if (userDebug.length > 0) {
           lines.push("\nDebug output:");
@@ -83,6 +84,7 @@ export const ApexRunTool = buildTool({
     } finally {
       try {
         fs.unlinkSync(tmpFile);
+        fs.rmdirSync(tmpDir);
       } catch {
         // ignore cleanup errors
       }

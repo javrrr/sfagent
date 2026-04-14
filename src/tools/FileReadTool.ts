@@ -1,8 +1,8 @@
 /**
  * FileReadTool — Read local project files.
  *
- * Mirrors Claude Code's FileReadTool pattern: returns file content
- * with line numbers for easy reference.
+ * Restricted to the current working directory to prevent
+ * path traversal attacks (reading ~/.ssh, credentials, etc.).
  */
 
 import * as fs from "node:fs/promises";
@@ -10,14 +10,46 @@ import * as path from "node:path";
 import { z } from "zod";
 import { buildTool } from "./Tool.js";
 
+const BLOCKED_PATTERNS = [
+  /\.sfagent/,
+  /\.ssh/,
+  /\.aws/,
+  /\.gnupg/,
+  /\.env$/,
+  /\.env\./,
+  /credentials\.json/,
+  /token\.json/,
+  /\.netrc/,
+];
+
+function validatePath(filePath: string): string | null {
+  const resolved = path.resolve(filePath);
+  const cwd = process.cwd();
+
+  if (!resolved.startsWith(cwd + path.sep) && resolved !== cwd) {
+    return `Access denied: path is outside the working directory (${cwd}).`;
+  }
+
+  for (const pattern of BLOCKED_PATTERNS) {
+    if (pattern.test(resolved)) {
+      return `Access denied: cannot read sensitive files matching ${pattern}.`;
+    }
+  }
+
+  return null;
+}
+
 export const FileReadTool = buildTool({
   name: "file_read",
   description:
-    "Read a file from the local filesystem. Returns content with line numbers.",
+    "Read a file from the local project directory. Returns content with line numbers. " +
+    "Paths must be within the current working directory.",
   isReadOnly: true,
 
   inputSchema: z.object({
-    file_path: z.string().describe("Absolute or relative path to the file"),
+    file_path: z
+      .string()
+      .describe("Relative or absolute path to the file (must be within project directory)"),
     offset: z
       .number()
       .optional()
@@ -32,6 +64,11 @@ export const FileReadTool = buildTool({
     const filePath = path.resolve(args.file_path as string);
     const offset = (args.offset as number | undefined) ?? 1;
     const limit = (args.limit as number | undefined) ?? 2000;
+
+    const error = validatePath(filePath);
+    if (error) {
+      return { output: error, isError: true };
+    }
 
     let content: string;
     try {

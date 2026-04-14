@@ -3,7 +3,7 @@
  */
 
 import { z } from "zod";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { buildTool } from "./Tool.js";
 
 export const DeployTool = buildTool({
@@ -46,22 +46,23 @@ export const DeployTool = buildTool({
   }),
 
   async call(args, ctx) {
-    const parts = ["sf", "project", "deploy", "start", "--json"];
+    const sfArgs = ["project", "deploy", "start", "--json"];
 
     const targetOrg = (args.target_org as string | undefined) || ctx.targetOrg;
-    if (args.source_dir) parts.push("--source-dir", args.source_dir as string);
-    if (targetOrg) parts.push("--target-org", targetOrg);
-    if (args.test_level) parts.push("--test-level", args.test_level as string);
-    if (args.run_tests) parts.push("--tests", args.run_tests as string);
-    if (args.dry_run) parts.push("--dry-run");
+    if (args.source_dir) sfArgs.push("--source-dir", args.source_dir as string);
+    if (targetOrg) sfArgs.push("--target-org", targetOrg);
+    if (args.test_level) sfArgs.push("--test-level", args.test_level as string);
+    if (args.run_tests) sfArgs.push("--tests", args.run_tests as string);
+    if (args.dry_run) sfArgs.push("--dry-run");
 
     const wait = (args.wait_minutes as number | undefined) ?? 33;
-    parts.push("--wait", String(wait));
+    sfArgs.push("--wait", String(wait));
 
     try {
-      const stdout = execSync(parts.join(" "), {
+      const stdout = execFileSync("sf", sfArgs, {
         encoding: "utf-8",
         timeout: (wait + 2) * 60_000,
+        stdio: ["pipe", "pipe", "pipe"],
       });
 
       const result = JSON.parse(stdout);

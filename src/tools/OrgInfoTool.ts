@@ -3,7 +3,7 @@
  */
 
 import { z } from "zod";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { buildTool } from "./Tool.js";
 
 export const OrgInfoTool = buildTool({
@@ -25,19 +25,20 @@ export const OrgInfoTool = buildTool({
     const action = args.action as string;
     const targetOrg = (args.target_org as string | undefined) || ctx.targetOrg;
 
-    const parts: string[] = [];
+    const sfArgs: string[] = [];
 
     if (action === "list") {
-      parts.push("sf", "org", "list", "--json");
+      sfArgs.push("org", "list", "--json");
     } else {
-      parts.push("sf", "org", "display", "--json");
-      if (targetOrg) parts.push("--target-org", targetOrg);
+      sfArgs.push("org", "display", "--json");
+      if (targetOrg) sfArgs.push("--target-org", targetOrg);
     }
 
     try {
-      const stdout = execSync(parts.join(" "), {
+      const stdout = execFileSync("sf", sfArgs, {
         encoding: "utf-8",
         timeout: 30_000,
+        stdio: ["pipe", "pipe", "pipe"],
       });
 
       const result = JSON.parse(stdout);

@@ -3,7 +3,7 @@
  */
 
 import { z } from "zod";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { buildTool } from "./Tool.js";
 
 interface QueryResult {
@@ -18,10 +18,8 @@ interface QueryResult {
 function flatten(value: unknown): string {
   if (value === null || value === undefined) return "";
   if (typeof value === "object") {
-    // Handle relationship fields (e.g. Account.Name)
     const obj = value as Record<string, unknown>;
     if ("attributes" in obj) {
-      // Salesforce sObject — return meaningful fields
       const { attributes: _, ...rest } = obj;
       const vals = Object.values(rest).map(flatten).filter(Boolean);
       return vals.join(", ");
@@ -34,29 +32,21 @@ function flatten(value: unknown): string {
 function formatTable(records: Record<string, unknown>[]): string {
   if (records.length === 0) return "(no records)";
 
-  // Collect column names (skip 'attributes')
   const columns = Object.keys(records[0]!).filter((k) => k !== "attributes");
 
-  // Flatten all values first
-  const rows = records.map((r) =>
-    columns.map((col) => flatten(r[col]))
-  );
+  const rows = records.map((r) => columns.map((col) => flatten(r[col])));
 
-  // Calculate column widths
   const widths = columns.map((col, i) =>
     Math.max(col.length, ...rows.map((r) => r[i]!.length))
   );
 
-  // Cap column widths at 50 to prevent blowout
   const cappedWidths = widths.map((w) => Math.min(w, 50));
 
-  // Header
   const header = columns
     .map((col, i) => col.padEnd(cappedWidths[i]!))
     .join("  ");
   const separator = cappedWidths.map((w) => "─".repeat(w)).join("──");
 
-  // Rows
   const formattedRows = rows.map((r) =>
     r
       .map((val, i) => {
@@ -96,13 +86,12 @@ export const SoqlQueryTool = buildTool({
     const targetOrg = (args.target_org as string | undefined) || ctx.targetOrg;
     const useTooling = args.use_tooling_api as boolean | undefined;
 
-    // Build args array for execa-style execution to avoid shell quoting issues
     const sfArgs = ["data", "query", "--query", query, "--json"];
     if (targetOrg) sfArgs.push("--target-org", targetOrg);
     if (useTooling) sfArgs.push("--use-tooling-api");
 
     try {
-      const stdout = execSync(`sf ${sfArgs.map((a) => `'${a.replace(/'/g, "'\\''")}'`).join(" ")}`, {
+      const stdout = execFileSync("sf", sfArgs, {
         encoding: "utf-8",
         timeout: 60_000,
         stdio: ["pipe", "pipe", "pipe"],
@@ -115,7 +104,11 @@ export const SoqlQueryTool = buildTool({
 
       return { output: `${summary}\n\n${table}` };
     } catch (err: unknown) {
-      const execErr = err as { stdout?: string; stderr?: string; message: string };
+      const execErr = err as {
+        stdout?: string;
+        stderr?: string;
+        message: string;
+      };
       let errorMsg = execErr.message;
       if (execErr.stdout) {
         try {
