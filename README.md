@@ -4,7 +4,20 @@ A terminal agent for Salesforce developers — powered by the [Salesforce Models
 
 Think of it as a Claude Code-like experience for building on Salesforce: query data, deploy metadata, run Apex, and manage orgs — all from your terminal with AI assistance.
 
+## Install
+
+```bash
+npm install -g sfagent
+```
+
 ## Quick Start
+
+```bash
+sfagent --setup   # first-time: configure Models API credentials
+sfagent           # start the agent
+```
+
+Or without installing:
 
 ```bash
 npx sfagent
@@ -25,7 +38,7 @@ npx sfagent
 On first run, configure the Models API connection:
 
 ```bash
-npx sfagent --setup
+sfagent --setup
 ```
 
 This walks you through:
@@ -54,13 +67,13 @@ When creating the app in Salesforce Setup:
 
 ```bash
 # Start the agent
-npx sfagent
+sfagent
 
 # Use a specific model
-SF_MODEL=sfdc_ai__DefaultBedrockAnthropicClaude45Sonnet npx sfagent
+SF_MODEL=sfdc_ai__DefaultBedrockAnthropicClaude45Sonnet sfagent
 
 # Target a specific org
-SF_TARGET_ORG=my-sandbox npx sfagent
+SF_TARGET_ORG=my-sandbox sfagent
 ```
 
 ### Example Interactions
