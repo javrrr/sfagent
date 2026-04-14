@@ -92,77 +92,59 @@ export async function runSetup(
     // Step 1: Choose org
     console.log(chalk.white.bold("  Step 1: Select your Salesforce org\n"));
 
-    let orgs = listConnectedOrgs();
     let myDomain: string | null = null;
 
-    if (orgs.length === 0) {
-      console.log(chalk.yellow("  No connected orgs found.\n"));
-      const shouldLogin = await ask(
-        rl,
-        chalk.cyan("  Log in to a Salesforce org now? (Y/n): ")
-      );
-      if (shouldLogin.toLowerCase() !== "n") {
-        const alias = await ask(
+    console.log(`    ${chalk.cyan("1)")} Use an org already connected to sf CLI`);
+    console.log(`    ${chalk.cyan("2)")} Log in to a new org (opens browser)`);
+    console.log(`    ${chalk.cyan("3)")} Enter My Domain URL manually`);
+
+    const choice = await ask(rl, chalk.cyan("\n  Select [1-3]: "));
+
+    if (choice === "1") {
+      const orgs = listConnectedOrgs();
+      if (orgs.length === 0) {
+        console.log(chalk.yellow("\n  No connected orgs found. Use option 2 to log in.\n"));
+      } else {
+        const orgAlias = await ask(
           rl,
-          chalk.cyan("  Org alias (optional, press Enter to skip): ")
+          chalk.cyan(
+            `\n  Enter org alias or username (${orgs.map((o) => o.alias || o.username).join(", ")}): `
+          )
         );
-        try {
-          loginWithSfCli(alias || undefined);
-          orgs = listConnectedOrgs();
-        } catch (err) {
-          console.log(chalk.red(`  Login failed: ${(err as Error).message}`));
+        const match = orgs.find(
+          (o) => o.alias === orgAlias || o.username === orgAlias
+        );
+        if (match) {
+          myDomain = match.instanceUrl;
+          const label = match.alias
+            ? `${match.alias} (${match.username})`
+            : match.username;
+          console.log(chalk.green(`  ✓ ${label}`));
+        } else {
+          console.log(chalk.red(`  Org "${orgAlias}" not found.`));
         }
       }
-    }
-
-    if (orgs.length > 0) {
-      orgs.forEach((org, i) => {
-        const label = org.alias ? `${org.alias} (${org.username})` : org.username;
-        const def = org.isDefault ? chalk.green(" ← default") : "";
-        console.log(`    ${chalk.cyan(`${i + 1})`)} ${label}${def}`);
-        console.log(chalk.dim(`       ${org.instanceUrl}`));
-      });
-      console.log(`    ${chalk.cyan(`${orgs.length + 1})`)} Log in to a different org`);
-      console.log(`    ${chalk.cyan(`${orgs.length + 2})`)} Enter My Domain URL manually`);
-
-      const choice = await ask(
+    } else if (choice === "2") {
+      const alias = await ask(
         rl,
-        chalk.cyan(`\n  Select [1-${orgs.length + 2}]: `)
+        chalk.cyan("\n  Org alias (optional, press Enter to skip): ")
       );
-
-      const idx = parseInt(choice, 10) - 1;
-      if (idx >= 0 && idx < orgs.length) {
-        const selectedOrg = orgs[idx]!;
-        myDomain = selectedOrg.instanceUrl;
-        const label = selectedOrg.alias
-          ? `${selectedOrg.alias} (${selectedOrg.username})`
-          : selectedOrg.username;
-        console.log(chalk.green(`  ✓ ${label}`));
-      } else if (idx === orgs.length) {
-        // Log in to a different org
-        const alias = await ask(
-          rl,
-          chalk.cyan("  Org alias (optional, press Enter to skip): ")
-        );
-        try {
-          loginWithSfCli(alias || undefined);
-          const updatedOrgs = listConnectedOrgs();
-          // Use the most recently added org (last in list or matching alias)
-          const newOrg = alias
-            ? updatedOrgs.find((o) => o.alias === alias)
-            : updatedOrgs[updatedOrgs.length - 1];
-          if (newOrg) {
-            myDomain = newOrg.instanceUrl;
-            const label = newOrg.alias
-              ? `${newOrg.alias} (${newOrg.username})`
-              : newOrg.username;
-            console.log(chalk.green(`  ✓ ${label}`));
-          }
-        } catch (err) {
-          console.log(chalk.red(`  Login failed: ${(err as Error).message}`));
+      try {
+        loginWithSfCli(alias || undefined);
+        const orgs = listConnectedOrgs();
+        const newOrg = alias
+          ? orgs.find((o) => o.alias === alias)
+          : orgs[orgs.length - 1];
+        if (newOrg) {
+          myDomain = newOrg.instanceUrl;
+          const label = newOrg.alias
+            ? `${newOrg.alias} (${newOrg.username})`
+            : newOrg.username;
+          console.log(chalk.green(`  ✓ ${label}`));
         }
+      } catch (err) {
+        console.log(chalk.red(`  Login failed: ${(err as Error).message}`));
       }
-      // idx === orgs.length + 1 or invalid → falls through to manual entry
     }
 
     if (!myDomain) {
