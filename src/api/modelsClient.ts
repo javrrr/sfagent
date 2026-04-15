@@ -28,8 +28,16 @@ export interface LLMResponse {
   model: string;
 }
 
+export interface ChatRequestOptions {
+  /** When aborted, the in-flight HTTP request is cancelled (fetch). */
+  signal?: AbortSignal;
+}
+
 export interface LLMProvider {
-  chat(messages: Message[]): Promise<LLMResponse>;
+  chat(
+    messages: Message[],
+    options?: ChatRequestOptions
+  ): Promise<LLMResponse>;
 }
 
 // ---------------------------------------------------------------------------
@@ -53,15 +61,27 @@ export class SalesforceModelsProvider implements LLMProvider {
     return this.model;
   }
 
-  async chat(messages: Message[]): Promise<LLMResponse> {
-    return this.sendWithRetry(messages, /* retried */ false);
+  async chat(
+    messages: Message[],
+    options?: ChatRequestOptions
+  ): Promise<LLMResponse> {
+    return this.sendWithRetry(messages, /* retried */ false, options?.signal);
   }
 
   private async sendWithRetry(
     messages: Message[],
-    retried: boolean
+    retried: boolean,
+    signal?: AbortSignal
   ): Promise<LLMResponse> {
+    if (signal?.aborted) {
+      throw new DOMException("The operation was aborted.", "AbortError");
+    }
+
     const token = await getModelsApiToken(this.config);
+
+    if (signal?.aborted) {
+      throw new DOMException("The operation was aborted.", "AbortError");
+    }
 
     const requestBody: ModelsRequest = {
       messages,
@@ -82,12 +102,16 @@ export class SalesforceModelsProvider implements LLMProvider {
         "x-client-feature-id": "ai-platform-models-connected-app",
       },
       body: JSON.stringify(requestBody),
+      signal,
     });
 
     // Retry once on 401 with a fresh token
     if (res.status === 401 && !retried) {
       clearCachedToken();
-      return this.sendWithRetry(messages, true);
+      if (signal?.aborted) {
+        throw new DOMException("The operation was aborted.", "AbortError");
+      }
+      return this.sendWithRetry(messages, true, signal);
     }
 
     if (!res.ok) {

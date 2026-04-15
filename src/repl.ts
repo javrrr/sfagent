@@ -3,6 +3,7 @@
  */
 
 import * as readline from "node:readline";
+import type { Readable } from "node:stream";
 import chalk from "chalk";
 import type { Message, SfAgentConfig } from "./api/types.js";
 import type { LLMProvider } from "./api/modelsClient.js";
@@ -11,6 +12,13 @@ import { loginWithSfCli, getOrgInfo } from "./api/auth.js";
 import { runSetup } from "./setup.js";
 import { runAgentLoop } from "./agent.js";
 import { createDisplay } from "./ui/display.js";
+import {
+  PASTE_LINE_BREAK,
+  createBracketedPasteTransform,
+  detachBracketedPasteTransform,
+  disableBracketedPasteMode,
+  enableBracketedPasteMode,
+} from "./repl/bracketedPasteTransform.js";
 
 // ---------------------------------------------------------------------------
 // Slash commands
@@ -28,6 +36,7 @@ async function handleSlashCommand(
   switch (cmd) {
     case "/exit":
     case "/quit":
+      disableBracketedPasteMode();
       console.log(chalk.dim("Goodbye."));
       process.exit(0);
 
@@ -124,22 +133,55 @@ export async function startRepl(
     chalk.dim("  Type a message to get started. /help for commands.\n")
   );
 
+  // Bracketed paste (like Claude Code / Ink): multi-line paste → one message.
+  let stdinForRepl: Readable = process.stdin;
+  let pasteTransform: Readable | null = null;
+  if (process.stdin.isTTY) {
+    enableBracketedPasteMode();
+    process.once("exit", () => disableBracketedPasteMode());
+    pasteTransform = createBracketedPasteTransform(process.stdin);
+    stdinForRepl = pasteTransform;
+  }
+
   function createRl(): readline.Interface {
     return readline.createInterface({
-      input: process.stdin,
+      input: stdinForRepl,
       output: process.stdout,
       prompt: chalk.cyan("sfagent> "),
     });
   }
 
+  /** While set, Ctrl+C aborts the in-flight agent run (and the Models API request). */
+  let agentAbortController: AbortController | null = null;
+
+  function attachSigintHandler(rl: readline.Interface): void {
+    rl.on("SIGINT", () => {
+      if (agentAbortController) {
+        agentAbortController.abort();
+        return;
+      }
+      if (rl.line.length === 0) {
+        disableBracketedPasteMode();
+        console.log(chalk.dim("\nGoodbye."));
+        process.exit(0);
+      }
+      // Emacs readline: start of line + kill forward — clears full user input.
+      rl.write(null, { ctrl: true, name: "a" });
+      rl.write(null, { ctrl: true, name: "k" });
+      rl.prompt();
+    });
+  }
+
   let rl = createRl();
+  attachSigintHandler(rl);
   let display = createDisplay(rl);
 
   function startListening(): void {
     rl.prompt();
 
     rl.on("line", async (line: string) => {
-      const input = line.trim();
+      const text = line.split(PASTE_LINE_BREAK).join("\n");
+      const input = text.trim();
 
       if (!input) {
         rl.prompt();
@@ -161,6 +203,11 @@ export async function startRepl(
           // Close this readline — setup will close it again (harmless).
           rl.close();
           process.stdin.removeAllListeners("keypress");
+          if (pasteTransform) {
+            detachBracketedPasteTransform(process.stdin, pasteTransform);
+            pasteTransform = null;
+            stdinForRepl = process.stdin;
+          }
 
           try {
             await runSetup(config);
@@ -170,8 +217,14 @@ export async function startRepl(
             console.log(chalk.red((err as Error).message));
           }
 
+          if (process.stdin.isTTY) {
+            pasteTransform = createBracketedPasteTransform(process.stdin);
+            stdinForRepl = pasteTransform;
+          }
+
           // Recreate readline after setup completes
           rl = createRl();
+          attachSigintHandler(rl);
           display = createDisplay(rl);
           startListening();
           return;
@@ -184,10 +237,15 @@ export async function startRepl(
       }
 
       // Run agent loop
+      agentAbortController = new AbortController();
       try {
-        await runAgentLoop(provider, input, history, display, config);
+        await runAgentLoop(provider, input, history, display, config, {
+          signal: agentAbortController.signal,
+        });
       } catch (err) {
         display.onError((err as Error).message);
+      } finally {
+        agentAbortController = null;
       }
 
       console.log();
@@ -198,12 +256,6 @@ export async function startRepl(
       // Only exit if this is the active readline (not being replaced by setup)
     });
   }
-
-  // Handle Ctrl+C gracefully
-  process.on("SIGINT", () => {
-    console.log(chalk.dim("\nGoodbye."));
-    process.exit(0);
-  });
 
   startListening();
 }

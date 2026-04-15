@@ -18,6 +18,8 @@ export interface DisplayCallbacks {
   onToolResult(name: string, result: ToolResult): void;
   onToolError(name: string, error: string): void;
   onError(message: string): void;
+  /** User cancelled the in-flight run (e.g. Ctrl+C); stops spinners. */
+  onCancelled(): void;
   /**
    * Ask the user to confirm a non-read-only tool execution.
    * Returns 'allow', 'deny', or 'allow-all' (skip future prompts this session).
@@ -25,7 +27,8 @@ export interface DisplayCallbacks {
   confirmToolUse(
     name: string,
     args: Record<string, unknown>,
-    description: string
+    description: string,
+    options?: { signal?: AbortSignal }
   ): Promise<"allow" | "deny" | "allow-all">;
 }
 
@@ -64,11 +67,33 @@ function stopSpinner(): void {
 // ---------------------------------------------------------------------------
 
 export function createDisplay(rl: readline.Interface): DisplayCallbacks {
-  function ask(question: string): Promise<string> {
-    return new Promise((resolve) => {
-      rl.question(question, (answer) => {
-        resolve(answer.trim().toLowerCase());
-      });
+  function ask(question: string, signal?: AbortSignal): Promise<string> {
+    return new Promise((resolve, reject) => {
+      if (signal?.aborted) {
+        reject(new DOMException("The operation was aborted.", "AbortError"));
+        return;
+      }
+      let settled = false;
+      const finish = (fn: () => void) => {
+        if (settled) return;
+        settled = true;
+        signal?.removeEventListener("abort", onAbort);
+        fn();
+      };
+      const onAbort = () => {
+        finish(() =>
+          reject(new DOMException("The operation was aborted.", "AbortError"))
+        );
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
+      const cb = (answer: string) => {
+        finish(() => resolve((answer ?? "").trim().toLowerCase()));
+      };
+      if (signal) {
+        rl.question(question, { signal }, cb);
+      } else {
+        rl.question(question, cb);
+      }
     });
   }
 
@@ -136,10 +161,16 @@ export function createDisplay(rl: readline.Interface): DisplayCallbacks {
       console.log(chalk.red(`\nError: ${message}`));
     },
 
+    onCancelled() {
+      stopSpinner();
+      console.log(chalk.dim("\nCancelled."));
+    },
+
     async confirmToolUse(
       name: string,
       args: Record<string, unknown>,
-      description: string
+      description: string,
+      options?: { signal?: AbortSignal }
     ): Promise<"allow" | "deny" | "allow-all"> {
       console.log(
         `\n${chalk.yellow("⚠")} ${chalk.bold(name)} wants to execute:`
@@ -153,7 +184,8 @@ export function createDisplay(rl: readline.Interface): DisplayCallbacks {
       }
 
       const answer = await ask(
-        chalk.cyan("\n  Allow? (y)es / (n)o / (a)llow all for session: ")
+        chalk.cyan("\n  Allow? (y)es / (n)o / (a)llow all for session: "),
+        options?.signal
       );
 
       if (answer === "a" || answer === "allow" || answer === "allow all") {

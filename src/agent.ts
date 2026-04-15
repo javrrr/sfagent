@@ -23,6 +23,17 @@ import type { DisplayCallbacks } from "./ui/display.js";
 
 export interface AgentOptions {
   maxTurns?: number;
+  /** When aborted (e.g. Ctrl+C), cancels the Models API request and rolls back this turn. */
+  signal?: AbortSignal;
+}
+
+function isAbortError(err: unknown): boolean {
+  return (
+    (typeof DOMException !== "undefined" &&
+      err instanceof DOMException &&
+      err.name === "AbortError") ||
+    (err instanceof Error && err.name === "AbortError")
+  );
 }
 
 export async function runAgentLoop(
@@ -34,7 +45,19 @@ export async function runAgentLoop(
   options: AgentOptions = {}
 ): Promise<void> {
   const maxTurns = options.maxTurns ?? 20;
+  const signal = options.signal;
   const systemPrompt = buildSystemPrompt();
+
+  const historyBaseline = conversationHistory.length;
+
+  function rollback(): void {
+    conversationHistory.length = historyBaseline;
+  }
+
+  function handleUserAbort(): void {
+    rollback();
+    display.onCancelled();
+  }
 
   // Tool context — shared state for all tool calls
   const toolCtx: ToolContext = {
@@ -48,21 +71,36 @@ export async function runAgentLoop(
   conversationHistory.push({ role: "user", content: userMessage });
 
   for (let turn = 0; turn < maxTurns; turn++) {
+    if (signal?.aborted) {
+      handleUserAbort();
+      return;
+    }
+
     // Build the full message array with system prompt
     const messages: Message[] = [
       { role: "system", content: systemPrompt },
       ...conversationHistory,
     ];
 
-    // Call the LLM
+    // Call the LLM (fetch uses signal so the HTTP request is cancelled when possible)
     display.onThinking();
     let response;
     try {
-      response = await provider.chat(messages);
+      response = await provider.chat(messages, { signal });
     } catch (err) {
+      if (isAbortError(err)) {
+        handleUserAbort();
+        return;
+      }
       display.onError(`API error: ${(err as Error).message}`);
       return;
     }
+
+    if (signal?.aborted) {
+      handleUserAbort();
+      return;
+    }
+
     display.onThinkingDone(response.usage);
 
     // Parse for tool calls
@@ -70,6 +108,10 @@ export async function runAgentLoop(
 
     // No tool calls → final response, display all text
     if (parsed.toolCalls.length === 0) {
+      if (signal?.aborted) {
+        handleUserAbort();
+        return;
+      }
       for (const text of parsed.textSegments) {
         display.onAssistantText(text);
       }
@@ -117,11 +159,21 @@ export async function runAgentLoop(
 
       // Permission check: non-read-only tools require confirmation
       if (!tool.isReadOnly && !autoApproved.has(tool.name)) {
-        const decision = await display.confirmToolUse(
-          tool.name,
-          toolCall.args,
-          tool.description
-        );
+        let decision: "allow" | "deny" | "allow-all";
+        try {
+          decision = await display.confirmToolUse(
+            tool.name,
+            toolCall.args,
+            tool.description,
+            { signal }
+          );
+        } catch (err) {
+          if (isAbortError(err)) {
+            handleUserAbort();
+            return;
+          }
+          throw err;
+        }
 
         if (decision === "deny") {
           const denyResult = formatToolResult(toolCall.name, {
@@ -153,6 +205,16 @@ export async function runAgentLoop(
 
       display.onToolResult(toolCall.name, result);
       resultParts.push(formatToolResult(toolCall.name, result));
+
+      if (signal?.aborted) {
+        handleUserAbort();
+        return;
+      }
+    }
+
+    if (signal?.aborted) {
+      handleUserAbort();
+      return;
     }
 
     // Append assistant message (full response) and tool results
