@@ -1,6 +1,6 @@
 {
   "name": "sfagent",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Salesforce terminal agent powered by the Models API — a Claude Code-like experience for Salesforce developers",
   "type": "module",
   "main": "dist/index.js",
